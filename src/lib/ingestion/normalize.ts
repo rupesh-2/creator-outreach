@@ -1,4 +1,5 @@
 import type { Platform } from "@/lib/types";
+import type { RegionGuess } from "./region";
 
 export interface NormalizedPost {
   external_id: string | null;
@@ -33,6 +34,8 @@ export interface NormalizedCreator {
     last_posted_at?: string | null;
   };
   raw?: unknown;
+  /** Detected country/language (Apify imports). Undefined = not detected, so existing values are kept. */
+  region?: RegionGuess;
 }
 
 export function cleanHandle(h: string): string {

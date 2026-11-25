@@ -330,6 +330,14 @@ export const saveSettings = action(async ({ supabase, user }, fd) => {
     auto_draft_proposition: (["mvp", "partnership", "open"].includes(s(fd, "auto_draft_proposition")) ? s(fd, "auto_draft_proposition") : "open"),
     auto_draft_include_budget: fd.get("auto_draft_include_budget") === "on",
   };
+  values.target_countries = [
+    ...new Set(
+      s(fd, "target_countries")
+        .toUpperCase()
+        .split(/[\s,]+/)
+        .filter((c) => /^[A-Z]{2}$/.test(c)),
+    ),
+  ];
   const signature = s(fd, "email_signature");
   let { error } = await supabase.from("settings").update({ ...values, email_signature: signature }).eq("owner_id", user.id);
   // Migration 0003 not applied yet: save everything else rather than failing the whole form.

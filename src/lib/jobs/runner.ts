@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { env } from "@/lib/env";
 import { getDatasetItems, getRun, handlesFromHashtagItems, hashtagInput, normalizeApifyItems, profileInput, startActorRun } from "@/lib/ingestion/apify";
+import { inTargetRegion } from "@/lib/ingestion/region";
 import { analyzeCreator, generateOutreach, type OutreachOptions } from "@/lib/services/ai";
 import { upsertCreators } from "@/lib/services/creators";
 import { OutreachBlocked, sendApprovedEmail } from "@/lib/services/crm";
@@ -69,8 +70,17 @@ async function handle(db: SupabaseClient, job: Job): Promise<unknown> {
       if (items instanceof Reschedule) return items;
       const creators = normalizeApifyItems(platform, items as Record<string, unknown>[]);
       const summary = await upsertCreators(db, owner, creators, "apify", `apify:${p.runId}`);
-      if (p.autoAnalyze) for (const id of summary.ids) await enqueue(db, owner, "analyze", { creatorId: id, parentId: job.id });
-      return summary;
+      let skippedRegion = 0;
+      if (p.autoAnalyze) {
+        // Only spend LLM quota on creators in the target countries (Settings → Target countries).
+        const targets = settings.target_countries ?? [];
+        const { data: rows } = await db.from("creators").select("id, country, language").in("id", summary.ids);
+        for (const r of rows ?? []) {
+          if (inTargetRegion(r, targets)) await enqueue(db, owner, "analyze", { creatorId: r.id, parentId: job.id });
+          else skippedRegion++;
+        }
+      }
+      return { ...summary, skippedRegion };
     }
     case "apify_hashtag": {
       const platform = p.platform as Platform;
@@ -134,8 +144,9 @@ const DRAFTABLE: string[] = ["discovered", "analyzed", "qualified"];
 export async function maybeQueueDraft(db: SupabaseClient, owner: string, creatorId: string, parentId?: string): Promise<string> {
   const settings = await getSettings(db, owner);
   if (!settings.auto_draft) return "off";
-  const { data: c } = await db.from("creators").select("score, status").eq("id", creatorId).eq("owner_id", owner).maybeSingle();
+  const { data: c } = await db.from("creators").select("score, status, country, language").eq("id", creatorId).eq("owner_id", owner).maybeSingle();
   if (!c) return "creator not found";
+  if (!inTargetRegion(c, settings.target_countries ?? [])) return `outside target countries (${c.country ?? "unknown"})`;
   if (c.score == null || c.score < settings.auto_draft_min_score) return `score ${c.score ?? "—"} below ${settings.auto_draft_min_score}`;
   if (!DRAFTABLE.includes(c.status)) return `status ${c.status}`;
   const [{ count: msgs }, { count: jobs }] = await Promise.all([

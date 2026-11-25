@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NormalizedCreator } from "@/lib/ingestion/normalize";
+import { inferRegion } from "@/lib/ingestion/region";
 import { aggregate, type AggregateMetrics } from "@/lib/scoring/metrics";
 import { scoreCreator } from "@/lib/scoring/score";
 import type { Creator, CreatorPost, CreatorStatus, DataSource, Settings } from "@/lib/types";
@@ -41,6 +42,8 @@ export async function upsertCreators(
         .eq("handle", c.handle)
         .maybeSingle();
 
+      // CSV/manual rows have no platform location data: detect from bio + captions.
+      const region = c.region ?? inferRegion({ bio: c.bio, displayName: c.display_name, captions: c.posts.map((p) => p.caption) });
       // Only overwrite profile fields with non-null new values so a sparse re-import doesn't erase data.
       const profile = Object.fromEntries(
         Object.entries({
@@ -53,6 +56,9 @@ export async function upsertCreators(
           external_url: c.external_url,
           niche: c.niche,
           raw: c.raw ?? null,
+          country: region.country,
+          country_evidence: region.country ? region.evidence : null,
+          language: region.language,
         }).filter(([, v]) => v !== null && v !== undefined),
       );
       const row = {

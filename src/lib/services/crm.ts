@@ -94,6 +94,17 @@ async function recordSent(db: SupabaseClient, ownerId: string, m: Message, c: Cr
     .update({ last_contacted_at: now.toISOString(), ...(c.follow_up_at && c.follow_up_at > followUp ? {} : { follow_up_at: followUp }) })
     .eq("id", c.id);
   await db.from("contact_events").insert({ owner_id: ownerId, creator_id: c.id, type: "sent", message_id: m.id, body: `${m.kind} via ${m.channel}` });
+  // One first message per creator: once it's out, retire the other channels' first-message drafts/approvals
+  // so they don't sit in "Ready to send" only to be blocked by the duplicate-contact guard.
+  if (m.kind === "initial")
+    await db
+      .from("messages")
+      .update({ state: "discarded" })
+      .eq("owner_id", ownerId)
+      .eq("creator_id", c.id)
+      .eq("kind", "initial")
+      .in("state", ["draft", "approved"])
+      .neq("id", m.id);
   if (c.status !== "contacted") {
     const early: CreatorStatus[] = ["discovered", "analyzed", "qualified", "pending_review", "approved"];
     if (early.includes(c.status)) await setStatus(db, ownerId, c.id, "contacted", c.status);

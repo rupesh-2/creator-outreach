@@ -8,6 +8,7 @@
  */
 import type { Platform } from "@/lib/types";
 import { cleanHandle, extractEmail, isoDate, num, profileUrl, str, type NormalizedCreator, type NormalizedPost } from "./normalize";
+import { inferRegion } from "./region";
 
 const API = "https://api.apify.com/v2";
 
@@ -93,7 +94,14 @@ export function normalizeInstagramProfiles(items: Item[]): NormalizedCreator[] {
     .map((it) => {
       const handle = cleanHandle(String(it.username));
       const bio = str(pick(it, "biography", "bio"));
-      const posts = ((pick(it, "latestPosts", "posts") as Item[] | undefined) ?? []).map(igPost).filter((p): p is NormalizedPost => !!p);
+      const rawPosts = (pick(it, "latestPosts", "posts") as Item[] | undefined) ?? [];
+      const posts = rawPosts.map(igPost).filter((p): p is NormalizedPost => !!p);
+      const region = inferRegion({
+        bio,
+        displayName: str(pick(it, "fullName", "full_name")),
+        captions: posts.map((p) => p.caption),
+        locations: rawPosts.map((p) => str(pick(p, "locationName", "location_name"))),
+      });
       return {
         platform: "instagram" as const,
         handle,
@@ -107,6 +115,7 @@ export function normalizeInstagramProfiles(items: Item[]): NormalizedCreator[] {
         external_url: str(pick(it, "externalUrl", "external_url")),
         niche: str(pick(it, "businessCategoryName", "categoryName")),
         posts,
+        region,
         raw: { ...it, latestPosts: undefined },
       };
     });
@@ -115,6 +124,7 @@ export function normalizeInstagramProfiles(items: Item[]): NormalizedCreator[] {
 /** TikTok profile actors usually return one item per video with authorMeta on each. */
 export function normalizeTiktokItems(items: Item[]): NormalizedCreator[] {
   const by = new Map<string, NormalizedCreator>();
+  const codes = new Map<string, string[]>(); // handle → per-video country codes
   for (const it of items) {
     const a = (it.authorMeta as Item | undefined) ?? {};
     const h = str(pick(a, "name", "uniqueId")) ?? str(pick(it, "username"));
@@ -141,6 +151,8 @@ export function normalizeTiktokItems(items: Item[]): NormalizedCreator[] {
       };
       by.set(handle, c);
     }
+    const cc = str(pick(it, "locationCreated", "region"));
+    if (cc) codes.set(handle, [...(codes.get(handle) ?? []), cc]);
     const url = str(pick(it, "webVideoUrl", "url"));
     if (url)
       c.posts.push({
@@ -154,6 +166,8 @@ export function normalizeTiktokItems(items: Item[]): NormalizedCreator[] {
         is_video: true,
       });
   }
+  for (const c of by.values())
+    c.region = inferRegion({ bio: c.bio, displayName: c.display_name, captions: c.posts.map((p) => p.caption), countryCodes: codes.get(c.handle) });
   return [...by.values()];
 }
 

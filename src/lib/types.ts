@@ -63,6 +63,9 @@ export interface Creator {
   platform: Platform;
   handle: string;
   profile_url: string;
+  country: string | null;
+  country_evidence: string | null;
+  language: "en" | "other" | null;
   display_name: string | null;
   bio: string | null;
   followers: number | null;
@@ -146,4 +149,5 @@ export interface Settings {
   auto_draft_proposition: "mvp" | "partnership" | "open";
   auto_draft_include_budget: boolean;
   email_signature: string;
+  target_countries: string[];
 }

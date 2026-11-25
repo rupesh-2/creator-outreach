@@ -61,6 +61,11 @@ export default async function SettingsPage() {
                   <Input name="target_niches" defaultValue={s.target_niches.join(", ")} placeholder="fitness, meal prep, personal finance" />
                 </F>
               </div>
+              <div className="sm:col-span-2">
+                <F label="Target countries (2-letter codes, e.g. US, AU). Only these get automatic AI analysis and drafts; English-speaking creators with no detectable location are included too. Leave empty for everywhere.">
+                  <Input name="target_countries" defaultValue={(s.target_countries ?? []).join(", ")} placeholder="US, AU" />
+                </F>
+              </div>
               <F label="Min followers">
                 <Input name="min_followers" type="number" defaultValue={s.min_followers} />
               </F>

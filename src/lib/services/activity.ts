@@ -310,13 +310,14 @@ function profilesRun(
     skippedDnc?: number;
     failed?: unknown[];
     ids?: string[];
+    skippedRegion?: number;
   } | null;
   const collect = apifyStep(
     "Collect profiles",
     p,
     `${handles.length} handles → ${r?.inserted ?? 0} new creators saved, ${r?.updated ?? 0} updated${r?.skippedDnc ? `, ${r.skippedDnc} skipped (do-not-contact)` : ""}${
       r?.failed?.length ? `, ${r.failed.length} failed` : ""
-    }. All scored automatically.`,
+    }. All scored automatically.${r?.skippedRegion ? ` ${r.skippedRegion} outside your target countries were not analysed.` : ""}`,
   );
   if (p.status !== "done")
     collect.detail = `${handles.length} handles · ${collect.detail}`;

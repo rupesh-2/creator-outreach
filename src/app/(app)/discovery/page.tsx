@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { integrations } from "@/lib/env";
 import { compact, date, pct } from "@/lib/format";
 import { creatorQuery, type CreatorFilters } from "@/lib/services/creator-query";
+import { getSettings } from "@/lib/services/settings";
 import { requireUser } from "@/lib/supabase/server";
 import { CREATOR_STATUSES, STATUS_LABELS, type Creator } from "@/lib/types";
 import { addCreatorManual, bulkAnalyze, importCsv, processQueue, queueApifyHashtag, queueApifyProfiles, rescoreAll } from "../actions";
@@ -22,9 +23,10 @@ const PAGE = 100;
 
 export default async function DiscoveryPage({ searchParams }: PageProps<"/discovery">) {
   const f = (await searchParams) as CreatorFilters;
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
   const page = Math.max(0, Number(f.page ?? 0));
-  const { data, count } = await creatorQuery(supabase, f).range(page * PAGE, page * PAGE + PAGE - 1);
+  const targets = (await getSettings(supabase, user.id)).target_countries ?? [];
+  const { data, count } = await creatorQuery(supabase, f, "*", targets).range(page * PAGE, page * PAGE + PAGE - 1);
   const creators = (data ?? []) as unknown as Creator[];
   const apify = integrations().apify;
   const qs = new URLSearchParams(Object.entries(f).filter(([k, v]) => v && k !== "page") as [string, string][]);
@@ -151,7 +153,7 @@ export default async function DiscoveryPage({ searchParams }: PageProps<"/discov
                 </Field>
                 <div className="lg:col-span-2">
                   <Field label="Hashtags">
-                    <Input name="hashtags" placeholder="mealprep, highproteinrecipes" required />
+                    <Input name="hashtags" placeholder="sydneyfitness, aussiemealprep, nycfitness, austinfoodie" required />
                   </Field>
                 </div>
                 <Field label="Hashtag actor id">
@@ -171,7 +173,7 @@ export default async function DiscoveryPage({ searchParams }: PageProps<"/discov
                 </div>
               </ActionForm>
               <p className="mt-2 text-xs text-muted-foreground">
-                Scans recent posts for the hashtags, collects unique authors you don&apos;t already have, then queues profile collection for them. For TikTok use a
+                Scans recent posts for the hashtags, collects unique authors you don&apos;t already have, then queues profile collection for them. Generic tags (#fitness) pull creators from everywhere; city or country tags (#sydneyfitness, #melbournetattoo, #nycmealprep, #texasfitness) find far more US/AU creators. Only creators in your target countries get AI analysis. For TikTok use a
                 hashtag-capable actor such as <code>clockworks/tiktok-scraper</code>. Check each actor&apos;s terms and your platform obligations before running.
               </p>
               <QueueRunner />
@@ -193,6 +195,16 @@ export default async function DiscoveryPage({ searchParams }: PageProps<"/discov
           <option value="medium">Medium (55–69)</option>
           <option value="low">Low (&lt;55)</option>
           <option value="unscored">Unscored</option>
+        </NativeSelect>
+        <NativeSelect name="country" defaultValue={f.country ?? ""}>
+          <option value="">All countries</option>
+          {targets.length > 0 && <option value="target">In target countries ({targets.join(", ")})</option>}
+          {["US", "AU", "CA", "GB", "NZ"].map((cc) => (
+            <option key={cc} value={cc}>
+              {cc}
+            </option>
+          ))}
+          <option value="unknown">Unknown</option>
         </NativeSelect>
         <NativeSelect name="status" defaultValue={f.status ?? ""}>
           <option value="">All statuses</option>
@@ -238,6 +250,7 @@ export default async function DiscoveryPage({ searchParams }: PageProps<"/discov
                 <tr>
                   <th className="w-8 p-2" />
                   <th className="p-2">Creator</th>
+                  <th className="p-2">Country</th>
                   <th className="p-2 text-right">Followers</th>
                   <th className="p-2 text-right">Median views</th>
                   <th className="p-2 text-right">Engagement</th>
@@ -261,6 +274,13 @@ export default async function DiscoveryPage({ searchParams }: PageProps<"/discov
                       <div className="max-w-64 truncate text-xs text-muted-foreground">
                         {c.platform} · {c.display_name ?? ""} {c.business_email ? "· ✉︎" : ""}
                       </div>
+                    </td>
+                    <td className="p-2 text-xs whitespace-nowrap" title={c.country_evidence ?? (c.language === "en" ? "No location signal; content is in English" : "No location signal")}>
+                      {c.country ? (
+                        <span className={targets.length && !targets.includes(c.country) ? "text-muted-foreground" : "font-medium"}>{c.country}</span>
+                      ) : (
+                        <span className="text-muted-foreground">{c.language === "en" ? "? · EN" : c.language === "other" ? "? · non-EN" : "?"}</span>
+                      )}
                     </td>
                     <td className="p-2 text-right tabular-nums">{compact(c.followers)}</td>
                     <td className="p-2 text-right tabular-nums">{compact(c.median_views)}</td>
