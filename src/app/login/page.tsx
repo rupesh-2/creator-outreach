@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
 import { SubmitButton } from "@/components/submit-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +32,9 @@ export default function LoginPage() {
                 Create account
               </SubmitButton>
             </div>
+            <Link href="/forgot-password" className="block text-center text-sm text-muted-foreground underline">
+              Forgot password?
+            </Link>
           </ActionForm>
         </CardContent>
       </Card>

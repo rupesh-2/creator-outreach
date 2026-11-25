@@ -16,7 +16,7 @@ export async function proxy(request: NextRequest) {
   });
   const { data } = await supabase.auth.getUser();
   const path = request.nextUrl.pathname;
-  const isPublic = path.startsWith("/login") || path.startsWith("/unsubscribe") || path.startsWith("/api/");
+  const isPublic = ["/login", "/forgot-password", "/auth/", "/unsubscribe", "/api/"].some((p) => path.startsWith(p));
   // Only redirect page navigations. Server actions (POST + Next-Action header) must reach the action, whose
   // requireUser() redirects in a way the client router understands; a proxy 307 to /login is followed by fetch
   // and surfaces as "An unexpected response was received from the server".
