@@ -64,7 +64,7 @@ export function MessageEditor({
       {maxChars && <div className="text-right text-[11px] text-muted-foreground tabular-nums">{`${body.length}/${maxChars}`}</div>}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="sm" formAction={approve} disabled={busy}>
-          {approved ? "Re-approve edits" : "Approve"}
+          {approved ? "Re-approve edits" : showSubject ? "Approve & send" : "Approve"}
         </Button>
         <Button type="submit" size="sm" variant="outline" formAction={save} disabled={busy}>
           Save draft

@@ -1,14 +1,16 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { unstable_rethrow } from "next/navigation";
 import type { ActionResult } from "@/lib/action-result";
 import { parseCreatorsCsv } from "@/lib/ingestion/csv";
 import { cleanHandle, num, parsePlatform, profileUrl, rate, isoDate } from "@/lib/ingestion/normalize";
-import { enqueue, runJobs } from "@/lib/jobs/runner";
+import { enqueue, queueEmailSend, runJobs } from "@/lib/jobs/runner";
 import { analyzeCreator, generateOutreach } from "@/lib/services/ai";
 import { rescoreCreator, setStatus, upsertCreators } from "@/lib/services/creators";
 import { OutreachBlocked, addToDoNotContact, approveMessage, logReply, markSentManually, sendApprovedEmail } from "@/lib/services/crm";
+import { integrations } from "@/lib/env";
 import { getSettings } from "@/lib/services/settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUser } from "@/lib/supabase/server";
@@ -187,11 +189,24 @@ export const generate = action(async ({ supabase, user }, fd) => {
 
 // ───────────────────────── messages ─────────────────────────
 
+const AUTO_SEND_DELAY_SEC = 30;
+
 export const approve = action(async ({ supabase, user }, fd) => {
   const body = s(fd, "body");
   if (!body) throw new Error("Message body is empty.");
-  await approveMessage(supabase, user.id, s(fd, "messageId"), body, s(fd, "subject") || null);
-  return "Approved.";
+  const messageId = s(fd, "messageId");
+  const m = await approveMessage(supabase, user.id, messageId, body, s(fd, "subject") || null);
+  if (m.channel !== "email" || !m.hasEmail || !integrations().resend) return "Approved.";
+
+  // Auto-send: queue it with a short window to discard, then run the queue after responding so it goes out
+  // without any page open. In production the cron also picks up anything left over.
+  const admin = createAdminClient();
+  await queueEmailSend(admin, user.id, messageId, m.creatorId, AUTO_SEND_DELAY_SEC);
+  after(async () => {
+    await new Promise((r) => setTimeout(r, (AUTO_SEND_DELAY_SEC + 2) * 1000));
+    await runJobs(admin, { ownerId: user.id, budgetMs: 60_000 }).catch((e) => console.error("auto-send", e));
+  });
+  return `Approved — sending automatically in ${AUTO_SEND_DELAY_SEC} seconds. Discard it in Outreach Inbox to cancel.`;
 });
 
 export const saveDraft = action(async ({ supabase, user }, fd) => {

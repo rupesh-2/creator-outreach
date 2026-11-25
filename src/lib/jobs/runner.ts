@@ -4,10 +4,11 @@ import { env } from "@/lib/env";
 import { getDatasetItems, getRun, handlesFromHashtagItems, hashtagInput, normalizeApifyItems, profileInput, startActorRun } from "@/lib/ingestion/apify";
 import { analyzeCreator, generateOutreach, type OutreachOptions } from "@/lib/services/ai";
 import { upsertCreators } from "@/lib/services/creators";
+import { OutreachBlocked, sendApprovedEmail } from "@/lib/services/crm";
 import { getSettings } from "@/lib/services/settings";
 import type { Platform } from "@/lib/types";
 
-export type JobType = "apify_profiles" | "apify_hashtag" | "analyze" | "outreach";
+export type JobType = "apify_profiles" | "apify_hashtag" | "analyze" | "outreach" | "send_email";
 
 export interface Job {
   id: string;
@@ -90,9 +91,37 @@ async function handle(db: SupabaseClient, job: Job): Promise<unknown> {
     }
     case "outreach":
       return generateOutreach(db, owner, String(p.creatorId), p.options as unknown as OutreachOptions);
+    case "send_email": {
+      const messageId = String(p.messageId);
+      const { data: m } = await db.from("messages").select("state").eq("id", messageId).eq("owner_id", owner).maybeSingle();
+      // Discarded, edited back to draft, or already sent by hand: nothing to do.
+      if (!m || m.state !== "approved") return { skipped: `message is ${m?.state ?? "deleted"}` };
+      try {
+        await sendApprovedEmail(db, owner, messageId);
+        return { sent: true };
+      } catch (e) {
+        if (e instanceof OutreachBlocked && /Daily email limit/.test(e.message)) return new Reschedule(p, 3600); // wait for the 24h window
+        if (e instanceof OutreachBlocked) throw Object.assign(new Error(e.message), { retryable: false }); // DNC, already contacted, no address…
+        throw e; // Resend/network: retry with backoff
+      }
+    }
     default:
       throw new Error(`Unknown job type ${job.type}`);
   }
+}
+
+/** Queue an approved email to go out automatically after `delaySec` (a short window to discard it). No-op if already queued. */
+export async function queueEmailSend(db: SupabaseClient, owner: string, messageId: string, creatorId: string, delaySec = 30) {
+  const { count } = await db
+    .from("jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_id", owner)
+    .eq("type", "send_email")
+    .eq("payload->>messageId", messageId)
+    .in("status", ["queued", "running"]);
+  if (count) return false;
+  await enqueue(db, owner, "send_email", { messageId, creatorId }, delaySec);
+  return true;
 }
 
 const DRAFTABLE: string[] = ["discovered", "analyzed", "qualified"];

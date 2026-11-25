@@ -17,11 +17,23 @@ const CREATOR_COLS = "creators(id, handle, platform, profile_url, business_email
 
 export default async function InboxPage() {
   const { supabase } = await requireUser();
-  const [{ data: approved }, { data: sent }, { data: replies }] = await Promise.all([
+  const [{ data: approved }, { data: sent }, { data: replies }, { data: sendJobs }] = await Promise.all([
     supabase.from("messages").select(`*, ${CREATOR_COLS}`).eq("state", "approved").order("approved_at"),
     supabase.from("messages").select(`*, ${CREATOR_COLS}`).eq("state", "sent").order("sent_at", { ascending: false }).limit(25),
     supabase.from("messages").select(`*, ${CREATOR_COLS}`).eq("state", "received").order("sent_at", { ascending: false }).limit(25),
+    supabase
+      .from("jobs")
+      .select("payload, status, run_after, last_error, created_at")
+      .eq("type", "send_email")
+      .order("created_at", { ascending: false })
+      .limit(200),
   ]);
+  // Latest auto-send job per message.
+  const autoSend = new Map<string, { status: string; run_after: string; last_error: string | null }>();
+  for (const j of sendJobs ?? []) {
+    const id = String((j.payload as { messageId?: string }).messageId);
+    if (!autoSend.has(id)) autoSend.set(id, j);
+  }
   const canEmail = integrations().resend;
   const queue = (approved ?? []) as Row[];
 
@@ -29,7 +41,7 @@ export default async function InboxPage() {
     <>
       <PageHeader
         title="Outreach Inbox"
-        description="Approved messages waiting to be sent. DMs are sent by you on the platform, then marked sent here. Nothing is sent automatically."
+        description="Approved messages waiting to be sent. Approved emails go out automatically about 30 seconds after approval. DMs are sent by you on the platform, then marked sent here."
       />
       <h2 className="mb-3 text-sm font-semibold">Ready to send ({queue.length})</h2>
       {queue.length ? (
@@ -49,6 +61,7 @@ export default async function InboxPage() {
                     </span>
                   </CardTitle>
                   {isEmail && <CardDescription>To: {c.business_email ?? "— no email"}</CardDescription>}
+                  {isEmail && <AutoSendStatus job={autoSend.get(m.id)} />}
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {m.subject && <div className="text-sm font-medium">{m.subject}</div>}
@@ -64,7 +77,7 @@ export default async function InboxPage() {
                       <ActionForm action={sendEmail}>
                         <input type="hidden" name="messageId" value={m.id} />
                         <SubmitButton size="sm" pendingText="Sending…">
-                          <Mail className="size-4" /> Send email
+                          <Mail className="size-4" /> {autoSend.get(m.id)?.status === "queued" ? "Send now" : "Send email"}
                         </SubmitButton>
                       </ActionForm>
                     )}
@@ -130,4 +143,16 @@ function Log({ title, rows, body, empty = "Nothing yet." }: { title: string; row
       )}
     </div>
   );
+}
+
+function AutoSendStatus({ job }: { job?: { status: string; run_after: string; last_error: string | null } }) {
+  if (!job) return null;
+  if (job.status === "queued" || job.status === "running")
+    return (
+      <p className="text-xs text-sky-700 dark:text-sky-400">
+        {job.last_error ? `Waiting to retry (${job.last_error}) — next try ${dateTime(job.run_after)}` : `Sending automatically · ${dateTime(job.run_after)}`}. Discard to cancel.
+      </p>
+    );
+  if (job.status === "failed") return <p className="text-xs text-red-600 dark:text-red-400">Automatic send failed: {job.last_error}</p>;
+  return null;
 }

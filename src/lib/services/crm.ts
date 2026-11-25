@@ -65,7 +65,12 @@ export async function approveMessage(db: SupabaseClient, ownerId: string, messag
     .eq("id", messageId)
     .eq("owner_id", ownerId);
   if (m.kind === "initial") await advanceStatus(db, ownerId, c.id, "approved");
+  return { channel: m.channel, creatorId: c.id, hasEmail: !!c.business_email };
 }
+
+/** Unsubscribe links must work for the recipient: a localhost APP_URL doesn't, so fall back to reply-to-unsubscribe. */
+export const isPublicUrl = (url: string) => !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|\/|$)/i.test(url);
+export const addressOf = (from: string) => from.match(/<([^>]+)>/)?.[1] ?? from.trim();
 
 async function recordSent(db: SupabaseClient, ownerId: string, m: Message, c: Creator, sentBody: string, providerId?: string) {
   const now = new Date();
@@ -118,8 +123,12 @@ export async function sendApprovedEmail(db: SupabaseClient, ownerId: string, mes
   if ((count ?? 0) >= settings.daily_email_limit)
     throw new OutreachBlocked(`Daily email limit reached (${settings.daily_email_limit} in the last 24h). Change it in Settings.`);
 
-  const unsub = unsubscribeUrl(ownerId, c.id, c.business_email);
-  const text = `${m.body}\n\n—\nIf you'd rather not hear from me again, click here and I won't email you again: ${unsub}`;
+  const replyTo = settings.sender_email || addressOf(from);
+  const publicUnsub = isPublicUrl(env.appUrl());
+  const unsub = publicUnsub ? unsubscribeUrl(ownerId, c.id, c.business_email) : null;
+  const text = unsub
+    ? `${m.body}\n\n—\nIf you'd rather not hear from me again, click here and I won't email you again: ${unsub}`
+    : `${m.body}\n\n—\nIf you'd rather not hear from me again, just reply "unsubscribe" and I won't email you again.`;
   let subject = m.subject ?? "Hello";
   if (m.kind === "follow_up" && !m.subject) {
     const { data: first } = await db
@@ -140,8 +149,10 @@ export async function sendApprovedEmail(db: SupabaseClient, ownerId: string, mes
     to: c.business_email,
     subject,
     text,
-    replyTo: settings.sender_email ?? undefined,
-    headers: { "List-Unsubscribe": `<${unsub}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+    replyTo,
+    headers: unsub
+      ? { "List-Unsubscribe": `<${unsub}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }
+      : { "List-Unsubscribe": `<mailto:${replyTo}?subject=unsubscribe>` },
   });
   if (error) throw new Error(`Email send failed: ${error.message}`);
   await recordSent(db, ownerId, m, c, text, data?.id);

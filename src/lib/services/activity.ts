@@ -8,7 +8,7 @@ export type StepState =
 
 export interface JobRow {
   id: string;
-  type: "apify_profiles" | "apify_hashtag" | "analyze" | "outreach";
+  type: "apify_profiles" | "apify_hashtag" | "analyze" | "outreach" | "send_email";
   status: JobStatus;
   payload: Record<string, unknown>;
   result: Record<string, unknown> | null;
@@ -84,7 +84,7 @@ export async function getActivity(db: SupabaseClient): Promise<Activity> {
     if (j.type === "apify_profiles")
       for (const id of (j.result?.ids as string[] | undefined) ?? [])
         creatorIds.add(id);
-    if (j.type === "analyze" || j.type === "outreach")
+    if (j.type === "analyze" || j.type === "outreach" || j.type === "send_email")
       creatorIds.add(String(j.payload.creatorId));
   }
   const creatorsById = new Map<string, RunCreator>();
@@ -509,6 +509,10 @@ function manualRuns(jobs: JobRow[], creators: Map<string, RunCreator>): Run[] {
     const type = g[0].type;
     const step = analysisStep(g);
     if (type === "outreach") step.label = "Draft outreach";
+    if (type === "send_email") {
+      step.label = "Send email";
+      step.detail = step.detail.replace("analysed", "sent");
+    }
     const list = g
       .map((j) => {
         const c = creators.get(String(j.payload.creatorId));
@@ -524,7 +528,7 @@ function manualRuns(jobs: JobRow[], creators: Map<string, RunCreator>): Run[] {
       .filter((c): c is RunCreator => !!c);
     return finalize({
       id: g[0].id,
-      title: `${type === "outreach" ? "Outreach drafts" : "AI analysis"} for ${g.length} creator${g.length === 1 ? "" : "s"}`,
+      title: `${type === "outreach" ? "Outreach drafts" : type === "send_email" ? "Email sends" : "AI analysis"} for ${g.length} creator${g.length === 1 ? "" : "s"}`,
       platform: null,
       createdAt: g[g.length - 1].created_at,
       state: "pending",
