@@ -84,6 +84,19 @@ describe("configuredEndpoints", () => {
     expect(configuredEndpoints({ GROQ_API_KEY: "g", CEREBRAS_API_KEY: "c" }, "groq").map((e) => e.id)).toEqual(["groq"]);
   });
 
+  it("expands comma-separated models into ordered fallbacks", () => {
+    const eps = configuredEndpoints({ GEMINI_API_KEY: "k" });
+    expect(eps.map((e) => e.model)).toEqual(["gemini-3.1-flash-lite", "gemini-3.5-flash"]);
+    expect(configuredEndpoints({ GEMINI_API_KEY: "k", GEMINI_MODEL: "gemini-3.5-flash" }).map((e) => e.label)).toEqual(["Gemini"]);
+  });
+
+  it("falls over between models of the same provider", async () => {
+    const f = fakeFetch((c) => (c.body.model === "busy-model" ? err(503, "high demand") : ok('{"ok":true}', c.body.model as string)));
+    const eps = [ep("gemini"), ep("gemini")].map((e, i) => ({ ...e, model: i ? "spare-model" : "busy-model" }));
+    const r = await new CompatibleProvider(eps, "free", f.fn).complete(req);
+    expect(r.model).toBe("gemini/spare-model");
+  });
+
   it("strips code fences", () => {
     expect(stripFences('```json\n{"a":1}\n```')).toBe('{"a":1}');
     expect(stripFences(' {"a":1} ')).toBe('{"a":1}');

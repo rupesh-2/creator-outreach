@@ -33,6 +33,8 @@ export function getProvider(name: string): LlmProvider {
     case "groq":
     case "gemini":
     case "openrouter":
+    case "mistral":
+    case "nvidia":
     case "custom": {
       const eps = configuredEndpoints(process.env, name as Endpoint["id"]);
       const keyVar = name === "custom" ? "LLM_API_KEY + LLM_BASE_URL + LLM_MODEL" : `${name.toUpperCase()}_API_KEY`;

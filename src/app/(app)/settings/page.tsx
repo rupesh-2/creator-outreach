@@ -81,6 +81,8 @@ export default async function SettingsPage() {
                   <option value="cerebras">Cerebras (free) {i.cerebras ? "" : "(key missing)"}</option>
                   <option value="groq">Groq (free) {i.groq ? "" : "(key missing)"}</option>
                   <option value="gemini">Gemini (free) {i.gemini ? "" : "(key missing)"}</option>
+                  <option value="mistral">Mistral (free) {i.mistral ? "" : "(key missing)"}</option>
+                  <option value="nvidia">NVIDIA (free) {i.nvidia ? "" : "(key missing)"}</option>
                   <option value="openrouter">OpenRouter (free) {i.openrouter ? "" : "(key missing)"}</option>
                   <option value="custom">Custom OpenAI-compatible {i.custom ? "" : "(not configured)"}</option>
                   <option value="anthropic">Anthropic {i.anthropic ? "" : "(key missing)"}</option>
@@ -90,7 +92,7 @@ export default async function SettingsPage() {
               <p className="text-xs text-muted-foreground sm:col-span-2">
                 The two model fields below apply to Anthropic and OpenAI only. Free providers use their own model each:{" "}
                 {freeModels.length ? freeModels.map((e) => `${e.label} → ${e.model}`).join(", ") : "add a key (see Integrations) to enable them"}. Override with{" "}
-                <code>CEREBRAS_MODEL</code>, <code>GROQ_MODEL</code>, <code>GEMINI_MODEL</code> or <code>OPENROUTER_MODEL</code>.
+                <code>CEREBRAS_MODEL</code>, <code>GROQ_MODEL</code>, <code>GEMINI_MODEL</code>, <code>MISTRAL_MODEL</code>, <code>NVIDIA_MODEL</code> or <code>OPENROUTER_MODEL</code>.
               </p>
               <F label="Analysis model">
                 <Input name="analysis_model" defaultValue={s.analysis_model} list="models" />
@@ -158,6 +160,8 @@ export default async function SettingsPage() {
                     ["Cerebras (free)", i.cerebras, "CEREBRAS_API_KEY"],
                     ["Groq (free)", i.groq, "GROQ_API_KEY"],
                     ["Gemini (free)", i.gemini, "GEMINI_API_KEY"],
+                    ["Mistral (free)", i.mistral, "MISTRAL_API_KEY"],
+                    ["NVIDIA (free)", i.nvidia, "NVIDIA_API_KEY"],
                     ["OpenRouter (free)", i.openrouter, "OPENROUTER_API_KEY"],
                     ["Apify", i.apify, "APIFY_TOKEN"],
                     ["Resend (email)", i.resend, "RESEND_API_KEY + EMAIL_FROM"],

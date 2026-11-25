@@ -27,6 +27,8 @@ export const integrations = () => ({
   groq: !!process.env.GROQ_API_KEY,
   gemini: !!process.env.GEMINI_API_KEY,
   openrouter: !!process.env.OPENROUTER_API_KEY,
+  mistral: !!process.env.MISTRAL_API_KEY,
+  nvidia: !!process.env.NVIDIA_API_KEY,
   custom: !!(process.env.LLM_API_KEY && process.env.LLM_BASE_URL && process.env.LLM_MODEL),
   apify: !!process.env.APIFY_TOKEN,
   resend: !!process.env.RESEND_API_KEY && !!process.env.EMAIL_FROM,

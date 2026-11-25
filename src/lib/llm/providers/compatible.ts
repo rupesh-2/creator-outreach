@@ -9,10 +9,12 @@ import { LlmError, LlmRateLimited, type LlmProvider, type LlmRequest, type LlmRe
  * - Cerebras gpt-oss-120b: 1M tokens/day, 5 req/min.
  * - Groq openai/gpt-oss-120b: 200K tokens/day, 8K tokens/min, 1K req/day.
  * - Gemini (AI Studio): Flash-Lite ~500 req/day. Free-tier data may be used for training outside the UK/CH/EEA/EU.
+ * - Mistral (La Plateforme "Experiment" tier): ~1 req/s, very high monthly tokens; requires opting in to data training + phone verification.
+ * - NVIDIA (build.nvidia.com): ~40 req/min; phone verification.
  * - OpenRouter ":free" models: 50 req/day (1,000/day after a one-time $10 top-up), shared across models.
  */
 export interface Endpoint {
-  id: "cerebras" | "groq" | "gemini" | "openrouter" | "custom";
+  id: "cerebras" | "groq" | "gemini" | "mistral" | "nvidia" | "openrouter" | "custom";
   label: string;
   baseURL: string;
   apiKey: string;
@@ -28,8 +30,11 @@ const PRESETS = [
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     key: "GEMINI_API_KEY",
     modelVar: "GEMINI_MODEL",
-    model: "gemini-3.1-flash-lite",
+    // Comma-separated = try in order. Flash-Lite has the biggest free daily quota but is often overloaded (503).
+    model: "gemini-3.1-flash-lite,gemini-3.5-flash",
   },
+  { id: "mistral", label: "Mistral", baseURL: "https://api.mistral.ai/v1", key: "MISTRAL_API_KEY", modelVar: "MISTRAL_MODEL", model: "mistral-small-latest" },
+  { id: "nvidia", label: "NVIDIA", baseURL: "https://integrate.api.nvidia.com/v1", key: "NVIDIA_API_KEY", modelVar: "NVIDIA_MODEL", model: "nvidia/nemotron-3.5-super-vl-120b-a12b,nvidia/nemotron-3-ultra-550b-a55b" },
   {
     id: "openrouter",
     label: "OpenRouter",
@@ -44,13 +49,17 @@ export const FREE_KEY_VARS = [...PRESETS.map((p) => p.key), "LLM_API_KEY"];
 
 /** Endpoints with a key configured, in fallback order. `only` restricts to one provider id. */
 export function configuredEndpoints(env: Record<string, string | undefined> = process.env, only?: Endpoint["id"]): Endpoint[] {
-  const list: Endpoint[] = PRESETS.filter((p) => env[p.key]).map((p) => ({
-    id: p.id,
-    label: p.label,
-    baseURL: p.baseURL,
-    apiKey: env[p.key] as string,
-    model: env[p.modelVar] || p.model,
-  }));
+  // A provider's model setting may list several models ("a,b"): each becomes its own fallback endpoint.
+  const list: Endpoint[] = PRESETS.filter((p) => env[p.key]).flatMap((p) => {
+    const models = (env[p.modelVar] || p.model).split(",").map((m) => m.trim()).filter(Boolean);
+    return models.map((model) => ({
+      id: p.id,
+      label: models.length > 1 ? `${p.label} (${model})` : p.label,
+      baseURL: p.baseURL,
+      apiKey: env[p.key] as string,
+      model,
+    }));
+  });
   if (env.LLM_API_KEY && env.LLM_BASE_URL && env.LLM_MODEL)
     list.push({ id: "custom", label: "Custom", baseURL: env.LLM_BASE_URL, apiKey: env.LLM_API_KEY, model: env.LLM_MODEL });
   return only ? list.filter((e) => e.id === only) : list;
@@ -59,6 +68,7 @@ export function configuredEndpoints(env: Record<string, string | undefined> = pr
 // Process-local memory so a rate-limited or JSON-schema-incapable endpoint is skipped quickly on later calls.
 const cooldownUntil = new Map<string, number>();
 const noStrictSchema = new Set<string>();
+const keyOf = (e: Endpoint) => `${e.id}:${e.model}`;
 
 const DEFAULT_COOLDOWN_MS = 60_000;
 /** Free tiers count max output tokens against per-minute budgets (Groq: 8K TPM), so keep requests modest. */
@@ -78,10 +88,10 @@ export class CompatibleProvider implements LlmProvider {
   /** The Settings model is ignored: each endpoint uses its own model (env override or preset default). */
   async complete(req: LlmRequest): Promise<LlmResponse> {
     const now = Date.now();
-    const ready = this.endpoints.filter((e) => (cooldownUntil.get(e.id) ?? 0) <= now);
+    const ready = this.endpoints.filter((e) => (cooldownUntil.get(keyOf(e)) ?? 0) <= now);
     if (!ready.length) {
       // Everything is rate limited: don't spend a request just to get another 429.
-      const wait = Math.min(...this.endpoints.map((ep) => (cooldownUntil.get(ep.id) ?? 0) - now));
+      const wait = Math.min(...this.endpoints.map((ep) => (cooldownUntil.get(keyOf(ep)) ?? 0) - now));
       throw new LlmRateLimited(`Free LLM quota reached — all providers cooling down (${this.endpoints.map((e) => e.label).join(", ")})`, Math.max(wait, 5_000));
     }
     const order = ready;
@@ -98,14 +108,14 @@ export class CompatibleProvider implements LlmProvider {
         const transient = status === 429 || status === 413 || (status !== undefined && status >= 500) || e instanceof OpenAI.APIConnectionError;
         if (transient) {
           retryable = true;
-          cooldownUntil.set(ep.id, Date.now() + (retryAfterMs ?? DEFAULT_COOLDOWN_MS));
+          cooldownUntil.set(keyOf(ep), Date.now() + (retryAfterMs ?? DEFAULT_COOLDOWN_MS));
         }
         if (status !== 429 && status !== 413) allRateLimited = false;
         if (e instanceof LlmError && e.retryable) retryable = true;
       }
     }
     if (allRateLimited && errors.length) {
-      const wait = Math.max(...order.map((ep) => (cooldownUntil.get(ep.id) ?? 0) - Date.now()));
+      const wait = Math.max(...order.map((ep) => (cooldownUntil.get(keyOf(ep)) ?? 0) - Date.now()));
       throw new LlmRateLimited(`Free LLM quota reached — ${errors.join(" | ")}`.slice(0, 900), Math.max(wait, DEFAULT_COOLDOWN_MS));
     }
     throw new LlmError(`All free LLM providers failed — ${errors.join(" | ")}`.slice(0, 900), retryable);
