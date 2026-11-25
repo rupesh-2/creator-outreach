@@ -145,4 +145,5 @@ export interface Settings {
   auto_draft_min_score: number;
   auto_draft_proposition: "mvp" | "partnership" | "open";
   auto_draft_include_budget: boolean;
+  email_signature: string;
 }

@@ -14,3 +14,16 @@ describe("unsubscribe link target", () => {
     expect(addressOf(" rupesh@bhandarirupesh.com.np ")).toBe("rupesh@bhandarirupesh.com.np");
   });
 });
+
+import { withSignature } from "./crm";
+
+describe("email signature", () => {
+  const sig = "Rupesh\nhttps://bhandarirupesh.com.np/";
+  it("appends the signature after a blank line", () => {
+    expect(withSignature("Hi Mia,\n\nLoved your reel.\n", sig)).toBe(`Hi Mia,\n\nLoved your reel.\n\n${sig}`);
+  });
+  it("skips empty signatures and doesn't duplicate one already in the body", () => {
+    expect(withSignature("Hi", "  ")).toBe("Hi");
+    expect(withSignature(`Hi\n\n${sig}`, sig)).toBe(`Hi\n\n${sig}`);
+  });
+});

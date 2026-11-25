@@ -1,76 +1,33 @@
 "use client";
 
-import { Loader2, Pause, Play } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
-import { Button } from "@/components/ui/button";
+import { CalendarClock } from "lucide-react";
+import { useSyncExternalStore } from "react";
 
-type Tick = () => Promise<{ processed: number; failed: number; waiting: number }>;
+/** Daily queue run, matching vercel.json ("0 9 * * *" = 09:00 UTC). */
+const CRON_UTC_HOUR = 9;
 
-/**
- * While this page is open and work is pending, keeps the queue moving (short server runs every ~10s)
- * and refreshes the page so progress is visible without clicking anything.
- */
-export function QueueLive({ pending, tick }: { pending: number; tick: Tick }) {
-  const router = useRouter();
-  const [paused, setPaused] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [last, setLast] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
-  const pendingRef = useRef(pending);
-  useEffect(() => {
-    pendingRef.current = pending;
-  }, [pending]);
+function nextRun(now = new Date()) {
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), CRON_UTC_HOUR));
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+  return next;
+}
 
-  useEffect(() => {
-    if (paused) return;
-    let stop = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const loop = async () => {
-      if (stop) return;
-      if (pendingRef.current > 0) {
-        setBusy(true);
-        try {
-          const r = await tick();
-          const parts = [r.processed && `${r.processed} finished`, r.waiting && `${r.waiting} waiting (Apify or LLM quota)`, r.failed && `${r.failed} failed`].filter(Boolean);
-          setLast(`${new Date().toLocaleTimeString()} — ${parts.length ? parts.join(", ") : "nothing ready yet"}`);
-        } catch (e) {
-          setLast(`Queue run failed: ${(e as Error).message}`);
-        } finally {
-          setBusy(false);
-        }
-        startTransition(() => router.refresh());
-      }
-      timer = setTimeout(loop, 10_000);
-    };
-    loop();
-    return () => {
-      stop = true;
-      clearTimeout(timer);
-    };
-  }, [paused, tick, router]);
+// Render the time in the viewer's own timezone; the server render shows UTC until hydration.
+const subscribe = () => () => {};
+const localLabel = () => nextRun().toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+const serverLabel = () => `${nextRun().toISOString().slice(11, 16)} UTC`;
 
-  const toggle = () => setPaused((p) => !p);
-
+/** Explains when queued work runs. No polling: the queue runs once a day, or on demand via "Process queue now". */
+export function QueueSchedule({ pending }: { pending: number }) {
+  const when = useSyncExternalStore(subscribe, localLabel, serverLabel);
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card px-4 py-3 text-sm">
-      <span className="flex items-center gap-2 font-medium">
-        {paused ? (
-          <span className="size-2 rounded-full bg-muted-foreground" />
-        ) : busy ? (
-          <Loader2 className="size-4 animate-spin text-primary" />
-        ) : (
-          <span className={`size-2 rounded-full ${pending ? "animate-pulse bg-emerald-500" : "bg-emerald-500"}`} />
-        )}
-        {paused ? "Auto-run paused" : pending ? (busy ? "Running queue…" : "Auto-running queue") : "Queue idle — nothing pending"}
-      </span>
+      <CalendarClock className="size-4 text-muted-foreground" />
+      <span className="font-medium">{pending ? `${pending} job${pending === 1 ? "" : "s"} waiting` : "Queue idle — nothing pending"}</span>
       <span className="text-xs text-muted-foreground">
-        {paused ? "Jobs only run when you click “Process queue now” (or the daily cron in production)." : last ?? "Checks every 10 seconds while this page is open."}
+        The queue runs automatically once a day (next: {when}). Click “Process queue now” to run it immediately. Approved emails don’t wait —
+        they send about 30 seconds after you approve them.
       </span>
-      <Button size="sm" variant="ghost" className="ml-auto" onClick={toggle}>
-        {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
-        {paused ? "Resume" : "Pause"}
-      </Button>
     </div>
   );
 }

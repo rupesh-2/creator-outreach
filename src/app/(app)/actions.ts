@@ -122,12 +122,6 @@ export const processQueue = action(async ({ user }) => {
   return `Processed ${r.processed} job(s)${r.waiting ? `, ${r.waiting} waiting (Apify run or free LLM quota)` : ""}${r.failed ? `, ${r.failed} failed (will retry)` : ""}.`;
 });
 
-/** Short queue run for the Activity page's auto-run loop (called repeatedly from the client). */
-export async function runQueueTick() {
-  const { user } = await requireUser();
-  return runJobs(createAdminClient(), { ownerId: user.id, budgetMs: 20_000 });
-}
-
 const jobIdsFrom = (fd: FormData) => s(fd, "jobIds").split(",").filter(Boolean);
 
 export const retryFailedJobs = action(async ({ supabase }, fd) => {
@@ -318,27 +312,32 @@ export const saveSettings = action(async ({ supabase, user }, fd) => {
     const v = Number(s(fd, k));
     return Number.isFinite(v) && v > 0 ? v : d;
   };
-  const { error } = await supabase
-    .from("settings")
-    .update({
-      sender_name: s(fd, "sender_name"),
-      sender_bio: s(fd, "sender_bio"),
-      sender_email: s(fd, "sender_email") || null,
-      target_niches: s(fd, "target_niches").split(",").map((x) => x.trim()).filter(Boolean),
-      min_followers: n("min_followers", 10000),
-      max_followers: n("max_followers", 100000),
-      daily_email_limit: n("daily_email_limit", 20),
-      llm_provider: s(fd, "llm_provider") || "anthropic",
-      analysis_model: s(fd, "analysis_model") || "claude-opus-5-5",
-      outreach_model: s(fd, "outreach_model") || "claude-opus-5-5",
-      apify_instagram_actor: s(fd, "apify_instagram_actor") || "apify/instagram-profile-scraper",
-      apify_tiktok_actor: s(fd, "apify_tiktok_actor") || "clockworks/tiktok-profile-scraper",
-      auto_draft: fd.get("auto_draft") === "on",
-      auto_draft_min_score: Math.min(100, Math.max(0, Math.round(Number(s(fd, "auto_draft_min_score")) || 55))),
-      auto_draft_proposition: (["mvp", "partnership", "open"].includes(s(fd, "auto_draft_proposition")) ? s(fd, "auto_draft_proposition") : "open"),
-      auto_draft_include_budget: fd.get("auto_draft_include_budget") === "on",
-    })
-    .eq("owner_id", user.id);
+  const values: Record<string, unknown> = {
+    sender_name: s(fd, "sender_name"),
+    sender_bio: s(fd, "sender_bio"),
+    sender_email: s(fd, "sender_email") || null,
+    target_niches: s(fd, "target_niches").split(",").map((x) => x.trim()).filter(Boolean),
+    min_followers: n("min_followers", 10000),
+    max_followers: n("max_followers", 100000),
+    daily_email_limit: n("daily_email_limit", 20),
+    llm_provider: s(fd, "llm_provider") || "anthropic",
+    analysis_model: s(fd, "analysis_model") || "claude-opus-5-5",
+    outreach_model: s(fd, "outreach_model") || "claude-opus-5-5",
+    apify_instagram_actor: s(fd, "apify_instagram_actor") || "apify/instagram-profile-scraper",
+    apify_tiktok_actor: s(fd, "apify_tiktok_actor") || "clockworks/tiktok-profile-scraper",
+    auto_draft: fd.get("auto_draft") === "on",
+    auto_draft_min_score: Math.min(100, Math.max(0, Math.round(Number(s(fd, "auto_draft_min_score")) || 55))),
+    auto_draft_proposition: (["mvp", "partnership", "open"].includes(s(fd, "auto_draft_proposition")) ? s(fd, "auto_draft_proposition") : "open"),
+    auto_draft_include_budget: fd.get("auto_draft_include_budget") === "on",
+  };
+  const signature = s(fd, "email_signature");
+  let { error } = await supabase.from("settings").update({ ...values, email_signature: signature }).eq("owner_id", user.id);
+  // Migration 0003 not applied yet: save everything else rather than failing the whole form.
+  if (error && /email_signature/.test(error.message)) {
+    ({ error } = await supabase.from("settings").update(values).eq("owner_id", user.id));
+    if (error) throw error;
+    return "Settings saved, except the email signature: run supabase/migrations/0003_email_signature.sql in the Supabase SQL editor first.";
+  }
   if (error) throw error;
   return "Settings saved. Use “Rescore all” to apply new niche/follower settings to existing creators.";
 });

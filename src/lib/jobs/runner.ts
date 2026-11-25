@@ -159,7 +159,10 @@ export async function maybeQueueDraft(db: SupabaseClient, owner: string, creator
 }
 
 /** Claims and runs jobs until the time budget is spent. Safe to run concurrently (SKIP LOCKED). */
-export async function runJobs(db: SupabaseClient, opts: { ownerId?: string; budgetMs?: number; batch?: number } = {}) {
+export async function runJobs(
+  db: SupabaseClient,
+  opts: { ownerId?: string; budgetMs?: number; batch?: number; /** keep going while queued jobs come due inside the budget (daily cron) */ waitForDue?: boolean } = {},
+) {
   const deadline = Date.now() + (opts.budgetMs ?? 240_000);
   let processed = 0;
   let failed = 0;
@@ -167,7 +170,18 @@ export async function runJobs(db: SupabaseClient, opts: { ownerId?: string; budg
   while (Date.now() < deadline) {
     const { data: jobs, error } = await db.rpc("claim_jobs", { n: opts.batch ?? 3, p_owner: opts.ownerId ?? null });
     if (error) throw error;
-    if (!jobs?.length) break;
+    if (!jobs?.length) {
+      // Daily cron: an Apify run re-checks ~45s after starting. Wait for the next job that comes due within the
+      // budget instead of leaving it for tomorrow. Jobs waiting on LLM quota (hours away) end the run.
+      if (!opts.waitForDue) break;
+      let next = db.from("jobs").select("run_after").eq("status", "queued").order("run_after").limit(1);
+      if (opts.ownerId) next = next.eq("owner_id", opts.ownerId);
+      const { data: due } = await next;
+      const wait = due?.[0] ? new Date(due[0].run_after).getTime() - Date.now() : Infinity;
+      if (wait > deadline - Date.now() - 15_000) break; // not enough time left to run it
+      await new Promise((r) => setTimeout(r, Math.max(wait, 1_000)));
+      continue;
+    }
     await Promise.all(
       (jobs as Job[]).map(async (job) => {
         try {

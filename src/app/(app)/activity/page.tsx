@@ -13,7 +13,7 @@ import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
 import { PriorityBadge, StatusBadge } from "@/components/badges";
 import { Empty, PageHeader, Stat } from "@/components/page-header";
-import { QueueLive } from "@/components/queue-live";
+import { QueueSchedule } from "@/components/queue-live";
 import { SubmitButton } from "@/components/submit-button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { compact, dateTime } from "@/lib/format";
@@ -29,7 +29,6 @@ import {
   cancelPendingJobs,
   processQueue,
   retryFailedJobs,
-  runQueueTick,
 } from "../actions";
 
 export default async function ActivityPage() {
@@ -90,7 +89,7 @@ export default async function ActivityPage() {
       </div>
 
       <div className="mb-6">
-        <QueueLive pending={pending} tick={runQueueTick} />
+        <QueueSchedule pending={pending} />
       </div>
 
       {runs.length ? (

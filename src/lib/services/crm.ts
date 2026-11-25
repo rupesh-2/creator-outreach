@@ -70,6 +70,14 @@ export async function approveMessage(db: SupabaseClient, ownerId: string, messag
 
 /** Unsubscribe links must work for the recipient: a localhost APP_URL doesn't, so fall back to reply-to-unsubscribe. */
 export const isPublicUrl = (url: string) => !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|\/|$)/i.test(url);
+/** Appends the signature unless the message already ends with it (e.g. it was pasted into the draft). */
+export function withSignature(body: string, signature: string | null | undefined): string {
+  const sig = (signature ?? "").trim();
+  const b = body.trimEnd();
+  if (!sig || b.endsWith(sig)) return b;
+  return `${b}\n\n${sig}`;
+}
+
 export const addressOf = (from: string) => from.match(/<([^>]+)>/)?.[1] ?? from.trim();
 
 async function recordSent(db: SupabaseClient, ownerId: string, m: Message, c: Creator, sentBody: string, providerId?: string) {
@@ -126,9 +134,10 @@ export async function sendApprovedEmail(db: SupabaseClient, ownerId: string, mes
   const replyTo = settings.sender_email || addressOf(from);
   const publicUnsub = isPublicUrl(env.appUrl());
   const unsub = publicUnsub ? unsubscribeUrl(ownerId, c.id, c.business_email) : null;
+  const body = withSignature(m.body, settings.email_signature);
   const text = unsub
-    ? `${m.body}\n\n—\nIf you'd rather not hear from me again, click here and I won't email you again: ${unsub}`
-    : `${m.body}\n\n—\nIf you'd rather not hear from me again, just reply "unsubscribe" and I won't email you again.`;
+    ? `${body}\n\n—\nIf you'd rather not hear from me again, click here and I won't email you again: ${unsub}`
+    : `${body}\n\n—\nIf you'd rather not hear from me again, just reply "unsubscribe" and I won't email you again.`;
   let subject = m.subject ?? "Hello";
   if (m.kind === "follow_up" && !m.subject) {
     const { data: first } = await db

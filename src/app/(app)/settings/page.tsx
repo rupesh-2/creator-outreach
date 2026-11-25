@@ -42,6 +42,16 @@ export default async function SettingsPage() {
                 <Input name="sender_email" type="email" defaultValue={s.sender_email ?? ""} />
               </F>
               <div className="sm:col-span-2">
+                <F label="Email signature (added to every email you send — not to DMs)">
+                  <Textarea
+                    name="email_signature"
+                    rows={2}
+                    defaultValue={s.email_signature ?? ""}
+                    placeholder={"Rupesh\nhttps://bhandarirupesh.com.np/"}
+                  />
+                </F>
+              </div>
+              <div className="sm:col-span-2">
                 <F label="About you (the AI uses only this — never invents credentials)">
                   <Textarea name="sender_bio" rows={3} defaultValue={s.sender_bio} />
                 </F>

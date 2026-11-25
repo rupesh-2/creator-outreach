@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { integrations } from "@/lib/env";
 import { dateTime } from "@/lib/format";
+import { getSettings } from "@/lib/services/settings";
 import { requireUser } from "@/lib/supabase/server";
 import type { Creator, Message } from "@/lib/types";
 import { discard, markSent, sendEmail } from "../actions";
@@ -16,8 +17,8 @@ type Row = Message & { creators: Pick<Creator, "id" | "handle" | "platform" | "p
 const CREATOR_COLS = "creators(id, handle, platform, profile_url, business_email, status)";
 
 export default async function InboxPage() {
-  const { supabase } = await requireUser();
-  const [{ data: approved }, { data: sent }, { data: replies }, { data: sendJobs }] = await Promise.all([
+  const { supabase, user } = await requireUser();
+  const [{ data: approved }, { data: sent }, { data: replies }, { data: sendJobs }, settings] = await Promise.all([
     supabase.from("messages").select(`*, ${CREATOR_COLS}`).eq("state", "approved").order("approved_at"),
     supabase.from("messages").select(`*, ${CREATOR_COLS}`).eq("state", "sent").order("sent_at", { ascending: false }).limit(25),
     supabase.from("messages").select(`*, ${CREATOR_COLS}`).eq("state", "received").order("sent_at", { ascending: false }).limit(25),
@@ -27,7 +28,9 @@ export default async function InboxPage() {
       .eq("type", "send_email")
       .order("created_at", { ascending: false })
       .limit(200),
+    getSettings(supabase, user.id),
   ]);
+  const signature = settings.email_signature?.trim() ?? "";
   // Latest auto-send job per message.
   const autoSend = new Map<string, { status: string; run_after: string; last_error: string | null }>();
   for (const j of sendJobs ?? []) {
@@ -65,7 +68,14 @@ export default async function InboxPage() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {m.subject && <div className="text-sm font-medium">{m.subject}</div>}
-                  <p className="rounded-lg bg-muted/40 p-3 text-sm whitespace-pre-line">{m.body}</p>
+                  <p className="rounded-lg bg-muted/40 p-3 text-sm whitespace-pre-line">
+                    {m.body}
+                    {isEmail && signature && !m.body.trimEnd().endsWith(signature) && (
+                      <span className="mt-3 block border-t pt-2 text-muted-foreground" title="Added automatically when sent (Settings → Email signature)">
+                        {signature}
+                      </span>
+                    )}
+                  </p>
                   <div className="flex flex-wrap items-center gap-2">
                     <CopyButton text={m.body} />
                     {!isEmail && (

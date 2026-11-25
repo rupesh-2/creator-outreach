@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
   if (req.headers.get("authorization") !== `Bearer ${env.cronSecret()}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const result = await runJobs(createAdminClient(), { budgetMs: 240_000 });
+  // Runs once a day (vercel.json): stay up to ~4.5 min so short Apify waits finish in this run.
+  const result = await runJobs(createAdminClient(), { budgetMs: 270_000, waitForDue: true });
   return NextResponse.json(result);
 }

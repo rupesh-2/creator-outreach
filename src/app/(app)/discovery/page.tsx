@@ -326,8 +326,8 @@ function QueueRunner() {
         Apify runs take a few minutes. Follow progress, results and errors on{" "}
         <Link href="/activity" className="underline">
           Activity
-        </Link>{" "}
-        (it runs the queue for you while open), or
+        </Link>
+        . The queue runs once a day; to run it now,
       </span>
       <SubmitButton size="sm" variant="ghost" pendingText="Processing…">
         process queue now
